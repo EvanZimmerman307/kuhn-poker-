@@ -1,4 +1,3 @@
-
 from typing import NewType, Dict, List, Callable, cast
 
 from labml import monit, tracker, logger, experiment
@@ -213,7 +212,59 @@ class CFR:
 
     #TODO: Imlement this function right here according to the cfr algorithm
     def walk_tree(self, h: History, i: Player, pi_1: float, pi_2: float) -> float:
-        ...
+        """
+        - h is the current history
+        - i is the player we are computing the regret of
+        - pi_1 is probability for reaching a given node in a tree (h) for player 1 given their strategy profile
+        - pi_2 above for player 2
+        - return the expected utility for the history
+        """
+        # if h is terminal, return the utility of h for player i
+        if h.is_terminal():
+            return h.terminal_utility(i)
+        
+        # if its a chance event P(h) = c sample a and go to the next state
+        if h.is_chance():
+            # same a single outcome and go to the next state
+            a = h.sample_chance()
+            return self.walk_tree(h + a, i, pi_1, pi_2)
+        
+        # get information set and set up expected utilities
+        info_set = self._get_info_set(h) # return the information set for the given player
+        expected_utility = 0 # initialize the expected utility
+
+        info_set_actions = info_set.actions() # return list of actions from the information set
+        
+        expected_utility_of_actions = {} # dictionary of actions: utility
+        for action in info_set_actions:
+            expected_utility_of_actions[action] = 0 # initialize to 0
+        
+
+        # iterate through all actions
+        for action in info_set_actions:
+            # calc utility of action by walking tree and calculating the strategy of the action
+            # info_set.strategy[action] is the probability of choosing the action given the information set
+            if h.player() == i:
+                expected_utility_of_actions[action] = self.walk_tree(h + action, i, info_set.strategy[action] * pi_1, pi_2)
+            else:
+                expected_utility_of_actions[action] = self.walk_tree(h + action, i, pi_1, info_set.strategy[action] * pi_2)
+            # update expected utility, based on prob of picking action
+            expected_utility += info_set.strategy[action] * expected_utility_of_actions[action]
+        
+        if h.player() == i:
+            for action in info_set_actions:
+                # for each action update the regret and the cumulative strategy
+                if i == 1:
+                    info_set.regret[action] += pi_2 * (expected_utility_of_actions[action] - expected_utility)
+                    info_set.cumulative_strategy[action] += pi_1 * info_set.strategy[action]
+                else: # i == 2
+                    info_set.regret[action] += pi_1 * (expected_utility_of_actions[action] - expected_utility)
+                    info_set.cumulative_strategy[action] += pi_2 * info_set.strategy[action]
+            
+            # recalculate the strategy (probability of picking actions)
+            info_set.calculate_strategy()
+        
+        return expected_utility
 
     def iterate(self):
         """
